@@ -5,7 +5,7 @@ import "openzeppelin/std/token/ERC20/IERC20.sol";
 import "openzeppelin/std/token/ERC20/utils/SafeERC20.sol";
 import "openzeppelin/upgrade/proxy/utils/Initializable.sol";
 
-import "./Mintable.sol";
+import "./AssetHelper.sol";
 
 enum AssetType {
     Native,
@@ -17,13 +17,19 @@ struct Asset {
     address addr;
 }
 
+struct Signature {
+    uint8 v;
+    bytes32 r;
+    bytes32 s;
+}
+
 contract NFTMinter is Initializable {
     using SafeERC20 for IERC20;
 
     string public constant NAME = "Bracelet Minter";
 
     address private authorizer_;
-    address private bracelet_;
+    address private nft_;
     address private beneficiary_;
 
     Asset private asset_;
@@ -33,16 +39,19 @@ contract NFTMinter is Initializable {
     // keccak256("Mint(address authorizer,address consumer,uint256 quantity,uint256 deadline)");
     bytes32 public constant MINT_TYPEHASH =
         0xa74d368158da60fbd4749531cca560dcd241b8f9eaca69cc0d1ede56ef056b70;
+    // keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
+    bytes32 public constant PERMIT_TYPEHASH =
+        0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9;
 
     function initialize(
         address _authorizer,
-        address _bracelet,
+        address _nft,
         address _beneficiary,
         Asset memory _asset,
         uint256 _price
     ) public initializer {
         authorizer_ = _authorizer;
-        bracelet_ = _bracelet;
+        nft_ = _nft;
         beneficiary_ = _beneficiary;
 
         asset_ = _asset;
@@ -50,7 +59,7 @@ contract NFTMinter is Initializable {
             (asset_.typ != AssetType.Native && asset_.typ != AssetType.ERC20) ||
                 (asset_.typ == AssetType.ERC20 && asset_.addr != address(0)) ||
                 (asset_.typ == AssetType.Native && asset_.addr == address(0)),
-            "Bracelet: invalid asset value"
+            "NFTMinter: invalid asset value"
         );
 
         price_ = _price;
@@ -82,10 +91,10 @@ contract NFTMinter is Initializable {
     }
 
     /***
-     * @return bracelet address of bracelet contract
+     * @return nft address of nft contract
      */
-    function bracelet() external view returns (address) {
-        return bracelet_;
+    function nft() external view returns (address) {
+        return nft_;
     }
 
     // txs
@@ -96,11 +105,9 @@ contract NFTMinter is Initializable {
     function _checkSignature(
         uint256 _quantity,
         uint256 _deadline,
-        uint8 _v,
-        bytes32 _r,
-        bytes32 _s
+        Signature memory _authority
     ) internal view {
-        require(_deadline >= block.timestamp, "BraceletMinter: EXPIRED");
+        require(_deadline >= block.timestamp, "NFTMinter: EXPIRED");
         bytes32 digest = keccak256(
             abi.encodePacked(
                 "\x19\x01",
@@ -116,10 +123,15 @@ contract NFTMinter is Initializable {
                 )
             )
         );
-        address recovered = ecrecover(digest, _v, _r, _s);
+        address recovered = ecrecover(
+            digest,
+            _authority.v,
+            _authority.r,
+            _authority.s
+        );
         require(
             recovered != address(0) && recovered == authorizer_,
-            "BraceletMinter: INVALID_SIGNATURE"
+            "NFTMinter: INVALID_SIGNATURE"
         );
     }
 
@@ -128,7 +140,7 @@ contract NFTMinter is Initializable {
 
         // NATIVE
         if (asset_.typ == AssetType.Native) {
-            require(msg.value == required, "BraceletMinter: not enough funds");
+            require(msg.value == required, "NFTMinter: not enough funds");
             payable(beneficiary_).transfer(required);
             return;
         }
@@ -143,24 +155,60 @@ contract NFTMinter is Initializable {
             return;
         }
 
-        revert("BraceletMinter: invalid asset type");
+        revert("NFTMinter: invalid asset type");
+    }
+
+    function _checkAsset(
+        uint256 _quantity,
+        uint256 _deadline,
+        Signature memory _authority
+    ) internal {
+        uint256 required = price_ * _quantity;
+
+        require(
+            asset_.typ == AssetType.ERC20,
+            "NFTMinter: only erc20 can operate"
+        );
+        Permitable(asset_.addr).permit(
+            msg.sender,
+            address(this),
+            required,
+            _deadline,
+            _authority.v,
+            _authority.r,
+            _authority.s
+        );
+        IERC20(asset_.addr).safeTransferFrom(
+            msg.sender,
+            beneficiary_,
+            required
+        );
     }
 
     function _mint(uint256 _quantity) internal {
         for (uint256 i = 0; i < _quantity; i++) {
-            Mintable(bracelet_).mint();
+            Mintable(nft_).mint();
         }
     }
 
     function mint(
         uint256 _quantity,
         uint256 _deadline,
-        uint8 _v,
-        bytes32 _r,
-        bytes32 _s
+        Signature memory _mintAuthority
     ) external payable {
-        _checkSignature(_quantity, _deadline, _v, _r, _s);
+        _checkSignature(_quantity, _deadline, _mintAuthority);
         _checkAsset(_quantity);
+        _mint(_quantity);
+    }
+
+    function mint(
+        uint256 _quantity,
+        uint256 _deadline,
+        Signature memory _mintAuthority,
+        Signature memory _tokenAuthority
+    ) external {
+        _checkSignature(_quantity, _deadline, _mintAuthority);
+        _checkAsset(_quantity, _deadline, _tokenAuthority);
         _mint(_quantity);
     }
 }
