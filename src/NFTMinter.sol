@@ -39,9 +39,6 @@ contract NFTMinter is Initializable {
     // keccak256("Mint(address authorizer,address consumer,uint256 quantity,uint256 deadline)");
     bytes32 public constant MINT_TYPEHASH =
         0xa74d368158da60fbd4749531cca560dcd241b8f9eaca69cc0d1ede56ef056b70;
-    // keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
-    bytes32 public constant PERMIT_TYPEHASH =
-        0x6e71edae12b1b97f4d1f60370fef10105fa2faae0126114a169c64845d6126c9;
 
     function initialize(
         address _authorizer,
