@@ -3,3 +3,4 @@ forge-std/=lib/forge-std/src/
 solmate/=lib/solmate/src/
 openzeppelin/std/=lib/openzeppelin-contracts/contracts/
 openzeppelin/upgrade/=lib/openzeppelin-contracts-upgradeable/contracts/
+upgrades/=lib/foundry-upgrades/src/utils/
